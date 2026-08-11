@@ -1,0 +1,15 @@
+.git
+.gitignore
+**/__pycache__
+**/*.pyc
+.env
+.env.local
+web
+data/uploads
+annotations
+ChordDetection
+notebooks
+tests
+*.md
+.venv
+venv
