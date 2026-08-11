@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import os
+import re
+import uuid
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -18,6 +20,7 @@ from server.agent import run_agent  # noqa: E402
 
 app = FastAPI(title="ReChord Agent API", version="0.1.0")
 
+
 def _cors_origins() -> list[str]:
     raw = os.getenv("CORS_ORIGINS", "")
     extras = [o.strip() for o in raw.split(",") if o.strip()]
@@ -25,8 +28,8 @@ def _cors_origins() -> list[str]:
         os.getenv("NEXT_PUBLIC_APP_URL", "http://localhost:3000"),
         "http://127.0.0.1:3000",
         "http://localhost:3000",
+        "https://chord-detection-iota.vercel.app",
     ]
-    # Preserve order, drop empties/dupes
     seen: set[str] = set()
     out: list[str] = []
     for o in extras + defaults:
@@ -79,6 +82,12 @@ class AnalyzeLinkBody(BaseModel):
     link: str = Field(..., min_length=3)
 
 
+def _safe_filename(name: str) -> str:
+    base = Path(name).name
+    cleaned = re.sub(r"[^\w.\- ()\u00C0-\u024F]+", "_", base, flags=re.UNICODE)
+    return cleaned or f"upload-{uuid.uuid4().hex}"
+
+
 @app.get("/health")
 def health():
     return {
@@ -86,6 +95,7 @@ def health():
         "openai": bool(os.getenv("OPENAI_API_KEY")),
         "tavily": bool(os.getenv("TAVILY_API_KEY")),
         "model": os.getenv("AGENT_MODEL", "gpt-4o-mini"),
+        "whisper": True,
     }
 
 
@@ -95,7 +105,7 @@ async def analyze(
     hint: str | None = Form(default=None),
     file: UploadFile | None = File(default=None),
 ):
-    """Accept song hint, link and/or uploaded audio/video."""
+    """Accept song hint, link and/or uploaded audio/video (Whisper listens to media)."""
     if not link and not hint and not file:
         raise HTTPException(400, "Cần tên bài, link, hoặc file audio/video")
 
@@ -105,19 +115,24 @@ async def analyze(
             "Thiếu OPENAI_API_KEY hoặc TAVILY_API_KEY trong .env",
         )
 
-    filename = file.filename if file else None
+    filename = None
+    media_path: Path | None = None
     if file and file.filename:
         upload_dir = ROOT / os.getenv("UPLOAD_DIR", "data/uploads")
         upload_dir.mkdir(parents=True, exist_ok=True)
-        dest = upload_dir / file.filename
+        filename = _safe_filename(file.filename)
+        media_path = upload_dir / f"{uuid.uuid4().hex}_{filename}"
         content = await file.read()
-        dest.write_bytes(content)
+        if not content:
+            raise HTTPException(400, "File rỗng")
+        media_path.write_bytes(content)
 
     try:
         result = run_agent(
             link=link or None,
             filename=filename,
             hint=hint or None,
+            media_path=str(media_path) if media_path else None,
         )
         return AnalyzeResponse(**result)
     except Exception as exc:  # noqa: BLE001

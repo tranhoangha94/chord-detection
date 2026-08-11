@@ -13,8 +13,16 @@ export type AnalyzeResult = {
   lyricBlocks?: LyricBlock[];
 };
 
-const API_BASE =
-  process.env.NEXT_PUBLIC_CHORD_API_URL || "http://127.0.0.1:8000";
+/** Ensure absolute API base (env missing https:// becomes a relative path → Vercel 404). */
+function resolveApiBase(raw: string | undefined): string {
+  const fallback = "http://127.0.0.1:8000";
+  const value = (raw || fallback).trim().replace(/\/+$/, "");
+  if (!value) return fallback;
+  if (/^https?:\/\//i.test(value)) return value;
+  return `https://${value}`;
+}
+
+const API_BASE = resolveApiBase(process.env.NEXT_PUBLIC_CHORD_API_URL);
 
 export async function analyzeSong(input: {
   link: string;
@@ -43,4 +51,8 @@ export async function analyzeSong(input: {
   }
 
   return res.json();
+}
+
+export function getChordApiBase(): string {
+  return API_BASE;
 }

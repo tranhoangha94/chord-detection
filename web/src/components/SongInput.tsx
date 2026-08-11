@@ -55,12 +55,6 @@ export function SongInput({ disabled, onSubmit }: SongInputProps) {
       setError("Nhập tên bài, dán link, hoặc thả file audio/video.");
       return;
     }
-    if (file && !hint.trim() && !link.trim()) {
-      setError(
-        "Upload file thì nên ghi tên bài (vd: Nàng Thơ - Hoàng Dũng) — Agent chưa nghe được audio.",
-      );
-      return;
-    }
     setError(null);
     onSubmit({ link: link.trim(), hint: hint.trim(), file });
   };
@@ -88,7 +82,7 @@ export function SongInput({ disabled, onSubmit }: SongInputProps) {
         <input
           id="song-hint"
           type="text"
-          placeholder="Tên bài · ca sĩ — vd: Nàng Thơ - Hoàng Dũng"
+          placeholder="Tên bài (tuỳ chọn) — vd: Nàng Thơ - Hoàng Dũng"
           value={hint}
           disabled={disabled}
           onChange={(e) => {
@@ -130,7 +124,7 @@ export function SongInput({ disabled, onSubmit }: SongInputProps) {
                 {file ? file.name : "Thả audio / video vào đây"}
               </span>
               <span className="block text-mute">
-                MP3, WAV, FLAC, MP4… · nhớ ghi tên bài phía trên
+                MP3, WAV, MP4… Agent nghe bằng Whisper rồi nhận diện
               </span>
             </span>
           </button>

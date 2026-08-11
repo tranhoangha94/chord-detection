@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import re
+from pathlib import Path
 from typing import Any
 
 from openai import OpenAI
@@ -90,11 +91,16 @@ def search_web(query: str, max_results: int = 6) -> list[dict[str, Any]]:
 
 
 def identify_query(
-    link: str | None, filename: str | None, hint: str | None = None
+    link: str | None,
+    filename: str | None,
+    hint: str | None = None,
+    transcript: str | None = None,
 ) -> str:
     parts = []
     if hint:
         parts.append(f"USER_CONFIRMED_TITLE: {hint}")
+    if transcript:
+        parts.append(f"AUDIO_TRANSCRIPT: {transcript[:2500]}")
     if link:
         parts.append(link)
     if filename:
@@ -137,28 +143,39 @@ def run_agent(
     link: str | None = None,
     filename: str | None = None,
     hint: str | None = None,
+    media_path: str | Path | None = None,
 ) -> dict[str, Any]:
-    seed = identify_query(link, filename, hint)
+    from server.media import listen_to_media
+
+    transcript: str | None = None
+    if media_path:
+        src = Path(media_path)
+        work = src.parent / "_whisper"
+        transcript = listen_to_media(src, work)
+
+    seed = identify_query(link, filename, hint, transcript)
     openai = _client_openai()
     user_hint = (hint or "").strip()
 
-    # Stage 1 — identify song (ưu tiên nhạc Việt; hint = ground truth)
+    # Stage 1 — identify from transcript / hint (ưu tiên nhạc Việt)
     if user_hint:
-        id_hits = search_web(
-            f"{user_hint} nhạc Việt hợp âm lời bài hát ca sĩ",
-            max_results=6,
-        )
-        id_hits += search_web(
-            f"{user_hint} hợp âm guitar đệm",
-            max_results=4,
-        )
+        search_q = user_hint
+    elif transcript:
+        # Use first lyric lines to find the Vietnamese song
+        snippet = " ".join(transcript.split()[:40])
+        search_q = f'nhạc Việt lời bài hát "{snippet}"'
     else:
-        id_hits = search_web(
-            f"nhạc Việt bài hát tên ca sĩ nhận diện: {seed}",
+        search_q = seed
+
+    id_hits = search_web(f"{search_q} tên bài ca sĩ hợp âm", max_results=6)
+    if transcript:
+        id_hits += search_web(
+            f"bài hát Việt Nam có lời: {transcript[:180]}",
             max_results=5,
         )
+    else:
         id_hits += search_web(
-            f"Vietnamese V-Pop song identify (NOT English pop hits): {seed}",
+            f"Vietnamese V-Pop identify (NOT English pop): {search_q}",
             max_results=4,
         )
     id_context = json.dumps(id_hits, ensure_ascii=False)
@@ -166,11 +183,13 @@ def run_agent(
     identify_system = (
         "Identify the song for a Vietnamese guitar app. "
         "HARD RULES: "
-        "1) If USER_CONFIRMED_TITLE is present, treat it as ground truth — do NOT replace with a different song "
-        "(especially not random English hits like Blinding Lights). "
-        "2) Prefer nhạc Việt / V-Pop when ambiguous. "
-        "3) Never invent a famous Western chart-topper without clear evidence in the seed/sources. "
-        "4) Keep Vietnamese spelling for title/artist. "
+        "1) If USER_CONFIRMED_TITLE is present, treat it as ground truth. "
+        "2) If AUDIO_TRANSCRIPT is present, identify the song FROM THE SUNG/SPOKEN LYRICS — "
+        "match Vietnamese V-Pop first (e.g. Nàng Thơ / Hoàng Dũng). "
+        "Do NOT guess random English hits like Blinding Lights when lyrics are Vietnamese. "
+        "3) Prefer nhạc Việt / V-Pop when ambiguous. "
+        "4) Never invent a Western chart-topper without clear evidence. "
+        "5) Keep Vietnamese spelling for title/artist. "
         'Return JSON: {"title":"...","artist":"...","query_hint":"cụm tìm hợp âm + lời",'
         '"is_vietnamese": true/false}'
     )
@@ -190,7 +209,6 @@ def run_agent(
     identity = json.loads(identify.choices[0].message.content or "{}")
 
     if user_hint:
-        # Parse "Title - Artist" if provided
         if " - " in user_hint:
             t, a = user_hint.split(" - ", 1)
             title = t.strip() or identity.get("title") or user_hint
@@ -198,7 +216,6 @@ def run_agent(
         else:
             title = identity.get("title") or user_hint
             artist = identity.get("artist") or "Unknown"
-            # If model drifted away from hint title, force hint as title
             if user_hint.lower() not in f"{title} {artist}".lower() and title.lower() not in user_hint.lower():
                 title = user_hint
         is_vn = True
@@ -224,6 +241,12 @@ def run_agent(
         )
     chord_context = json.dumps(chord_hits, ensure_ascii=False)[:16000]
 
+    lyric_hint = ""
+    if transcript:
+        lyric_hint = (
+            f"\nAudio transcript (use to align/verify Vietnamese lyrics):\n{transcript[:2000]}\n"
+        )
+
     chart = openai.chat.completions.create(
         model=AGENT_MODEL,
         temperature=0.35,
@@ -236,6 +259,7 @@ def run_agent(
                     f"Song: {title} — {artist}\n"
                     f"Vietnamese priority: {is_vn}\n"
                     f"User seed: {seed}\n"
+                    f"{lyric_hint}"
                     f"IMPORTANT: Analyze THIS song only ({title} / {artist}), not another track.\n"
                     f"Build timeline segments AND lyricBlocks (chords above lyrics) "
                     f"from these sources:\n{chord_context}"
@@ -247,15 +271,17 @@ def run_agent(
 
     data.setdefault("title", title)
     data.setdefault("artist", artist)
-    # Keep user-facing identity stable when hint given
     if user_hint:
         data["title"] = title
         data["artist"] = artist
     data.setdefault("key", "C")
     data.setdefault("capo", 0)
     data.setdefault("tempo", 120)
-    data.setdefault("source", "OpenAI + Tavily · ưu tiên nhạc Việt")
-    data.setdefault("confidence", 0.7)
+    source_bits = ["OpenAI + Tavily · ưu tiên nhạc Việt"]
+    if transcript:
+        source_bits.append("Whisper nghe audio/video")
+    data.setdefault("source", " · ".join(source_bits))
+    data.setdefault("confidence", 0.75 if transcript else 0.7)
     segments = data.get("segments") or []
     if not segments:
         raise RuntimeError("Agent không tạo được segments hợp âm")

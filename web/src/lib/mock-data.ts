@@ -64,8 +64,8 @@ export const MOCK_RESULT: MockSongResult = {
 export const LOADING_STAGES = [
   {
     id: "identify",
-    label: "Nhận diện bài hát",
-    detail: "Ưu tiên nhạc Việt — đối chiếu tên bài / ca sĩ.",
+    label: "Nghe & nhận diện bài",
+    detail: "Whisper nghe audio/video, ưu tiên khớp nhạc Việt.",
   },
   {
     id: "search",

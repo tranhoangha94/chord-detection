@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { AgentLoading } from "@/components/AgentLoading";
 import { ChordResult } from "@/components/ChordResult";
 import { SongInput } from "@/components/SongInput";
-import { analyzeSong, type AnalyzeResult } from "@/lib/api";
+import { analyzeSong, getChordApiBase, type AnalyzeResult } from "@/lib/api";
 import { LOADING_STAGES } from "@/lib/mock-data";
 
 type AppPhase = "idle" | "analyzing" | "result" | "error";
@@ -124,8 +124,8 @@ export default function Home() {
               Hợp âm guitar theo đúng bài — voicing nâng cao, không rút gọn.
             </h1>
             <p className="animate-rise-delay-2 mt-4 max-w-lg text-base leading-relaxed text-mute sm:text-lg">
-              Dán link hoặc thả audio/video. Agent ưu tiên nhạc Việt, tìm nguồn hợp âm
-              rồi dựng voicing guitar nâng cao.
+              Dán link hoặc thả audio/video. Agent nghe file (Whisper), ưu tiên
+              nhạc Việt, rồi dựng hợp âm guitar nâng cao.
             </p>
 
             <div className="animate-rise-delay-2 mt-10">
@@ -166,7 +166,7 @@ export default function Home() {
       </main>
 
       <footer className="relative z-10 border-t border-ink/10 px-5 py-4 text-xs text-mute sm:px-10">
-        Agent: OpenAI + Tavily · API {process.env.NEXT_PUBLIC_CHORD_API_URL || "http://127.0.0.1:8000"}
+        Agent: OpenAI + Tavily · API {getChordApiBase()}
       </footer>
     </div>
   );
