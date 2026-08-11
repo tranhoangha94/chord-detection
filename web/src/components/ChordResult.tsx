@@ -14,6 +14,8 @@ type ChordResultProps = {
 
 export function ChordResult({ result, audioUrl, onReset }: ChordResultProps) {
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const timelineRef = useRef<HTMLDivElement | null>(null);
+  const segmentRefs = useRef<(HTMLButtonElement | null)[]>([]);
   const [activeIndex, setActiveIndex] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
@@ -29,6 +31,37 @@ export function ChordResult({ result, audioUrl, onReset }: ChordResultProps) {
     });
     return [...map.entries()];
   }, [result.segments]);
+
+  // Keep active chord chip visible when timeline overflows
+  useEffect(() => {
+    const el = segmentRefs.current[activeIndex];
+    const scroller = timelineRef.current;
+    if (!el || !scroller) return;
+
+    const reduceMotion =
+      typeof window !== "undefined" &&
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+    const elLeft = el.offsetLeft;
+    const elRight = elLeft + el.offsetWidth;
+    const viewLeft = scroller.scrollLeft;
+    const viewRight = viewLeft + scroller.clientWidth;
+    const pad = 24;
+
+    let nextLeft = viewLeft;
+    if (elLeft < viewLeft + pad) {
+      nextLeft = Math.max(0, elLeft - pad);
+    } else if (elRight > viewRight - pad) {
+      nextLeft = elRight - scroller.clientWidth + pad;
+    } else {
+      return;
+    }
+
+    scroller.scrollTo({
+      left: nextLeft,
+      behavior: reduceMotion ? "auto" : "smooth",
+    });
+  }, [activeIndex]);
 
   useEffect(() => {
     const audio = audioRef.current;
@@ -167,13 +200,16 @@ export function ChordResult({ result, audioUrl, onReset }: ChordResultProps) {
         ))}
       </div>
 
-      <div className="mt-6 overflow-x-auto pb-2">
+      <div ref={timelineRef} className="mt-6 overflow-x-auto pb-2 scroll-smooth">
         <div className="flex min-w-max gap-1">
           {result.segments.map((seg, index) => {
             const selected = index === activeIndex;
             return (
               <button
                 key={`${seg.chord}-${seg.start}-${index}`}
+                ref={(node) => {
+                  segmentRefs.current[index] = node;
+                }}
                 type="button"
                 onClick={() => selectSegment(index)}
                 className={`group flex w-28 flex-col border px-3 py-3 text-left transition ${
